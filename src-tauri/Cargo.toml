@@ -1,0 +1,13 @@
+[package]
+name = "rufus-mac"
+version = "0.1.0"
+edition = "2021"
+description = "Rufus para macOS — núcleo Rust + UI Tauri"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+plist = "1"

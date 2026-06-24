@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Rufus</title>
+<style>
+  :root {
+    --bg: #ececec; --panel: #f7f7f7; --line: #c9c9c9; --ink: #1d1d1f;
+    --muted: #6e6e73; --field: #ffffff; --accent: #0a7d34; --accent-press: #0a6e2e;
+    --warn: #b30000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #2a2a2c; --panel: #323234; --line: #48484a; --ink: #f2f2f7;
+      --muted: #a1a1a6; --field: #1f1f21; --accent: #15a64a; --accent-press: #128a3f;
+      --warn: #ff5c5c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.35 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  .wrap { padding: 10px 14px 14px; }
+  #lang { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+  #lang span { color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; }
+  #lang span.on { color: #fff; background: var(--accent); }
+  fieldset {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    margin: 0 0 12px; padding: 8px 12px 12px;
+  }
+  legend { padding: 0 6px; color: var(--muted); font-weight: 600; font-size: 12px; }
+  .row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; margin-top: 8px; }
+  .row.split { grid-template-columns: 110px 1fr 92px 1fr; }
+  label { color: var(--muted); }
+  select, input[type=text], button {
+    font: inherit; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; background: var(--field);
+    height: 28px; padding: 0 8px; width: 100%;
+  }
+  select:disabled, input:disabled { opacity: .55; }
+  .boot { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+  button { cursor: pointer; }
+  button.sel { background: var(--panel); }
+  .status {
+    height: 26px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    position: relative; background: var(--field); margin-top: 4px;
+  }
+  .bar { position: absolute; inset: 0; width: 0; background: var(--accent); transition: width .2s; }
+  .bar.indet { width: 35% !important; animation: slide 1.1s ease-in-out infinite alternate; }
+  @keyframes slide { from { left: -35%; } to { left: 100%; } }
+  .status .txt {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 12px; mix-blend-mode: difference; color: #fff;
+  }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .actions button { height: 34px; font-weight: 600; }
+  #start { background: var(--accent); color: #fff; border-color: transparent; }
+  #start:active { background: var(--accent-press); }
+  #start:disabled { background: var(--line); color: var(--muted); }
+  .warn { color: var(--warn); font-size: 11px; margin-top: 6px; }
+  .hint { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="lang"><span data-lang="en">EN</span><span data-lang="pt">PT</span></div>
+
+  <fieldset>
+    <legend data-i18n="driveProps">Drive Properties</legend>
+
+    <div class="row">
+      <label data-i18n="device">Device</label>
+      <div class="boot">
+        <select id="device"><option>—</option></select>
+        <button class="sel" id="refresh" data-i18n="refresh">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label data-i18n="boot">Boot selection</label>
+      <div class="boot">
+        <input type="text" id="image" data-i18n-ph="noImage" placeholder="no image selected" readonly />
+        <button class="sel" id="select" data-i18n="selectBtn">SELECT</button>
+      </div>
+    </div>
+
+    <!-- cyrix: visuais p/ bater a aparência do Rufus; ainda não fazem nada no Mac -->
+    <div class="row split">
+      <label data-i18n="partScheme">Partition scheme</label>
+      <select disabled><option>GPT</option><option>MBR</option></select>
+      <label data-i18n="targetSys">Target system</label>
+      <select disabled><option>UEFI</option><option>BIOS</option></select>
+    </div>
+
+    <p class="warn" data-i18n="warn">⚠︎ Writing ERASES EVERYTHING on the selected device. Confirm the disk first.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend data-i18n="formatOpts">Format Options</legend>
+    <!-- cyrix: idem — stubs visuais. dd grava a imagem byte-a-byte, FS/cluster não se aplicam ainda -->
+    <div class="row">
+      <label data-i18n="volLabel">Volume label</label>
+      <input type="text" id="label" value="USB" disabled />
+    </div>
+    <div class="row split">
+      <label data-i18n="fileSystem">File system</label>
+      <select disabled><option>FAT32</option><option>exFAT</option><option>NTFS</option></select>
+      <label data-i18n="clusterSize">Cluster size</label>
+      <select disabled><option data-i18n="defaultOpt">Default</option></select>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend data-i18n="status">Status</legend>
+    <div class="status">
+      <div class="bar" id="bar"></div>
+      <div class="txt" id="statusTxt">READY</div>
+    </div>
+    <p class="hint" id="hint" data-i18n="hintIdle">Select a device and an image.</p>
+  </fieldset>
+
+  <div class="actions">
+    <button id="start" disabled data-i18n="start">START</button>
+    <button id="close" data-i18n="close">CLOSE</button>
+  </div>
+
+</div>
+
+<script>
+  // À prova de browser: fora do app Tauri o invoke só lança, em vez de matar todo o JS.
+  const invoke = window.__TAURI__?.core?.invoke
+    || (async () => { throw new Error("fora do app Tauri (rode com `cargo tauri dev`)"); });
+  const $ = (id) => document.getElementById(id);
+
+  const T = {
+    en: {
+      driveProps: "Drive Properties", device: "Device", refresh: "↻ Refresh",
+      boot: "Boot selection", selectBtn: "SELECT", noImage: "no image selected",
+      partScheme: "Partition scheme", targetSys: "Target system",
+      warn: "⚠︎ Writing ERASES EVERYTHING on the selected device. Confirm the disk first.",
+      formatOpts: "Format Options", volLabel: "Volume label", fileSystem: "File system",
+      clusterSize: "Cluster size", defaultOpt: "Default", status: "Status",
+      start: "START", close: "CLOSE", ready: "READY", writing: "WRITING…", error: "ERROR",
+      searching: "Searching…", noUsb: "no external USB",
+      hintIdle: "Select a device and an image.",
+      hintPwd: "Enter your admin password in the macOS dialog.",
+      hintDone: "Done. Device ejected.",
+      pickPrompt: "Select the image (.iso / .img / .dmg)",
+    },
+    pt: {
+      driveProps: "Propriedades da Unidade", device: "Dispositivo", refresh: "↻ Atualizar",
+      boot: "Seleção de boot", selectBtn: "SELECIONAR", noImage: "nenhuma imagem selecionada",
+      partScheme: "Esquema de partição", targetSys: "Sistema-alvo",
+      warn: "⚠︎ Gravar APAGA TUDO no dispositivo selecionado. Confirma o disco antes.",
+      formatOpts: "Opções de Formatação", volLabel: "Rótulo do volume", fileSystem: "Sistema de arquivos",
+      clusterSize: "Tam. do cluster", defaultOpt: "Padrão", status: "Status",
+      start: "INICIAR", close: "FECHAR", ready: "PRONTO", writing: "GRAVANDO…", error: "ERRO",
+      searching: "Procurando…", noUsb: "nenhum USB externo",
+      hintIdle: "Selecione um dispositivo e uma imagem.",
+      hintPwd: "Digite sua senha de admin na janela do macOS.",
+      hintDone: "Concluído. Dispositivo ejetado.",
+      pickPrompt: "Selecione a imagem (.iso / .img / .dmg)",
+    },
+  };
+  let lang = localStorage.getItem("rufus_lang") || "en"; // default ENG
+  const t = (k) => (T[lang] && T[lang][k]) || k;
+
+  const device = $("device"), imageInput = $("image"), startBtn = $("start");
+  let imagePath = null, busy = false;
+  const gb = (n) => (n / 1e9).toFixed(1) + " GB";
+  const refreshStart = () => { startBtn.disabled = busy || !(device.value && imagePath); };
+
+  function setStatus(txt, { indet = false, pct = 0, color } = {}) {
+    const bar = $("bar");
+    bar.className = "bar" + (indet ? " indet" : "");
+    if (!indet) bar.style.width = pct + "%";
+    if (color) bar.style.background = color; else bar.style.removeProperty("background");
+    $("statusTxt").textContent = txt;
+  }
+
+  async function loadDevices() {
+    device.innerHTML = `<option>${t("searching")}</option>`;
+    try {
+      const disks = await invoke("list_disks");
+      device.innerHTML = disks.length
+        ? disks.map((d) => `<option value="${d.id}">${d.name} [${gb(d.size)}] — /dev/${d.id}</option>`).join("")
+        : `<option value="">${t("noUsb")}</option>`;
+    } catch (e) {
+      device.innerHTML = `<option value="">error: ${e}</option>`;
+    }
+    refreshStart();
+  }
+
+  function applyLang() {
+    document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => (el.placeholder = t(el.dataset.i18nPh)));
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+    document.querySelectorAll("#lang span").forEach((s) => s.classList.toggle("on", s.dataset.lang === lang));
+    if (!busy) {
+      setStatus(t("ready"), { pct: 0 });
+      $("hint").textContent = imagePath || t("hintIdle");
+    }
+    loadDevices();
+  }
+
+  document.querySelectorAll("#lang span").forEach((s) => {
+    s.onclick = () => { lang = s.dataset.lang; localStorage.setItem("rufus_lang", lang); applyLang(); };
+  });
+  $("refresh").onclick = loadDevices;
+  device.onchange = refreshStart;
+
+  $("select").onclick = async () => {
+    const p = await invoke("pick_image", { prompt: t("pickPrompt") });
+    if (p) { imagePath = p; imageInput.value = p.split("/").pop(); $("hint").textContent = p; refreshStart(); }
+  };
+
+  startBtn.onclick = async () => {
+    busy = true; refreshStart();
+    setStatus(t("writing"), { indet: true });
+    $("hint").textContent = t("hintPwd");
+    try {
+      await invoke("flash", { image: imagePath, disk: device.value });
+      setStatus(t("ready"), { pct: 100, color: "var(--accent)" });
+      $("hint").textContent = t("hintDone");
+    } catch (e) {
+      setStatus(t("error"), { pct: 100, color: "var(--warn)" });
+      $("hint").textContent = String(e);
+    }
+    busy = false; refreshStart();
+  };
+
+  $("close").onclick = () => window.close();
+
+  applyLang(); // aplica idioma salvo + carrega dispositivos
+</script>
+</body>
+</html>

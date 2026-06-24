@@ -1,0 +1,11 @@
+# Rust / Cargo build output
+/src-tauri/target/
+
+# Tauri codegen output
+/src-tauri/gen/
+
+# macOS
+.DS_Store
+
+# Local dev tooling (machine-specific absolute paths)
+.claude/
