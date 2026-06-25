@@ -101,7 +101,15 @@ fn pick_image(prompt: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn flash(window: Window, image: String, disk: String, winopts: WinOpts) -> Result<(), String> {
+async fn flash(window: Window, image: String, disk: String, winopts: WinOpts) -> Result<(), String> {
+    // Trabalho pesado (minutos de rsync/wimlib/dd) fora da thread principal — senão a janela
+    // congela ("não respondendo") e os estágios do status nem chegam a renderizar.
+    tauri::async_runtime::spawn_blocking(move || flash_blocking(window, image, disk, winopts))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn flash_blocking(window: Window, image: String, disk: String, winopts: WinOpts) -> Result<(), String> {
     // Validação no trust boundary: `disk` vem da nossa lista, mas garantimos o formato.
     if !disk.starts_with("disk") || disk.contains('/') {
         return Err("Invalid disk identifier".into());

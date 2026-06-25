@@ -276,10 +276,17 @@
     if (p) { imagePath = p; imageInput.value = p.split("/").pop(); $("hint").textContent = p; refreshStart(); }
   };
 
+  const clock = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+
   startBtn.onclick = async () => {
     busy = true; refreshStart();
     setStatus(t("writing"), { indet: true });
     $("hint").textContent = t("working");
+    // Relógio no status — prova de que está vivo durante as etapas longas (cópia/split).
+    const t0 = Date.now();
+    const ticker = setInterval(() => {
+      $("statusTxt").textContent = t("writing") + " (" + clock(Math.floor((Date.now() - t0) / 1000)) + ")";
+    }, 1000);
     const winopts = {
       bypassChecks: $("winBypass").checked,
       bypassMsAccount: $("winNoMs").checked,
@@ -290,13 +297,15 @@
     };
     try {
       await invoke("flash", { image: imagePath, disk: device.value, winopts });
+      busy = false; clearInterval(ticker);
       setStatus(t("ready"), { pct: 100, color: "var(--accent)" });
       $("hint").textContent = t("hintDone");
     } catch (e) {
+      busy = false; clearInterval(ticker);
       setStatus(t("error"), { pct: 100, color: "var(--warn)" });
       $("hint").textContent = String(e);
     }
-    busy = false; refreshStart();
+    refreshStart();
   };
 
   $("close").onclick = () => window.close();
