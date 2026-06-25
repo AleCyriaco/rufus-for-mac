@@ -14,6 +14,29 @@ struct Disk {
     size: u64,    // bytes
 }
 
+/// Opções "Windows User Experience" (viram um autounattend.xml). Só usadas em ISO de Windows.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct WinOpts {
+    bypass_checks: bool,             // RAM 4GB / Secure Boot / TPM 2.0
+    bypass_ms_account: bool,         // conta Microsoft online
+    local_account: Option<String>,   // criar conta local com este nome
+    regional: bool,                  // usar o locale deste Mac
+    disable_telemetry: bool,         // pular perguntas de privacidade
+    disable_bitlocker: bool,         // PreventDeviceEncryption
+}
+
+impl WinOpts {
+    fn any(&self) -> bool {
+        self.bypass_checks
+            || self.bypass_ms_account
+            || self.local_account.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+            || self.regional
+            || self.disable_telemetry
+            || self.disable_bitlocker
+    }
+}
+
 /// Extrai os discos do plist do `diskutil list -plist`. Separado de list_disks pra ser testável sem shell.
 fn parse_disks(bytes: &[u8]) -> Vec<Disk> {
     let v: plist::Value = match plist::from_bytes(bytes) {
@@ -78,7 +101,7 @@ fn pick_image(prompt: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn flash(window: Window, image: String, disk: String) -> Result<(), String> {
+fn flash(window: Window, image: String, disk: String, winopts: WinOpts) -> Result<(), String> {
     // Validação no trust boundary: `disk` vem da nossa lista, mas garantimos o formato.
     if !disk.starts_with("disk") || disk.contains('/') {
         return Err("Invalid disk identifier".into());
@@ -98,7 +121,7 @@ fn flash(window: Window, image: String, disk: String) -> Result<(), String> {
         || Path::new(&format!("{iso}/sources/install.esd")).exists();
 
     let result = if is_windows {
-        flash_windows(&phase, &iso, &disk)
+        flash_windows(&phase, &iso, &disk, &winopts)
     } else {
         let _ = hdiutil_unmount(&iso); // dd lê o arquivo, não a ISO montada
         flash_dd(&phase, &image, &disk)
@@ -110,7 +133,7 @@ fn flash(window: Window, image: String, disk: String) -> Result<(), String> {
 }
 
 /// ISO de Windows: USB em FAT32/MBR (UEFI removível) + cópia + split do install.wim. Sem root.
-fn flash_windows(phase: &impl Fn(&str), iso_mount: &str, disk: &str) -> Result<(), String> {
+fn flash_windows(phase: &impl Fn(&str), iso_mount: &str, disk: &str, opts: &WinOpts) -> Result<(), String> {
     let dev = format!("/dev/{disk}");
 
     phase("p_format");
@@ -154,6 +177,13 @@ fn flash_windows(phase: &impl Fn(&str), iso_mount: &str, disk: &str) -> Result<(
         if !out.status.success() {
             return Err(format!("wimlib failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
         }
+    }
+
+    // "Windows User Experience": escreve autounattend.xml na raiz do USB (o Setup lê sozinho).
+    if let Some(xml) = generate_autounattend(opts, &host_locale()) {
+        phase("p_unattend");
+        std::fs::write(format!("{usb}/autounattend.xml"), xml)
+            .map_err(|e| format!("autounattend write failed: {e}"))?;
     }
 
     phase("p_finish");
@@ -254,6 +284,142 @@ fn find_wimlib() -> Option<String> {
     None
 }
 
+/// Locale deste Mac (AppleLocale "pt_BR" → "pt-BR"); fallback en-US.
+fn host_locale() -> String {
+    let raw = Command::new("defaults")
+        .args(["read", "-g", "AppleLocale"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    let base = raw.split('@').next().unwrap_or("").replace('_', "-");
+    if base.contains('-') { base } else { "en-US".into() }
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Gera o autounattend.xml conforme as opções. None se nada foi marcado.
+/// cyrix: x64 fixo (amd64) e timezone não mapeado (só idioma/teclado) — vide README.
+fn generate_autounattend(o: &WinOpts, locale: &str) -> Option<String> {
+    if !o.any() {
+        return None;
+    }
+
+    // pass windowsPE — bypass de hardware (LabConfig).
+    let pe = if o.bypass_checks {
+        let cmds: String = [
+            "BypassTPMCheck",
+            "BypassSecureBootCheck",
+            "BypassRAMCheck",
+            "BypassStorageCheck",
+            "BypassCPUCheck",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, k)| format!(
+            "<RunSynchronousCommand wcm:action=\"add\"><Order>{}</Order><Path>reg add HKLM\\System\\Setup\\LabConfig /v {} /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>",
+            i + 1, k
+        ))
+        .collect();
+        format!(
+"  <settings pass=\"windowsPE\">
+    <component name=\"Microsoft-Windows-Setup\" processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" language=\"neutral\" versionScope=\"nonSxS\">
+      <RunSynchronous>{cmds}</RunSynchronous>
+    </component>
+  </settings>
+")
+    } else {
+        String::new()
+    };
+
+    // pass specialize — reg de conta-online/telemetria/bitlocker.
+    let mut sp: Vec<&str> = vec![];
+    if o.bypass_ms_account {
+        sp.push("reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE /v BypassNRO /t REG_DWORD /d 1 /f");
+    }
+    if o.disable_telemetry {
+        sp.push("reg add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection /v AllowTelemetry /t REG_DWORD /d 0 /f");
+    }
+    if o.disable_bitlocker {
+        sp.push("reg add HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker /v PreventDeviceEncryption /t REG_DWORD /d 1 /f");
+    }
+    let specialize = if sp.is_empty() {
+        String::new()
+    } else {
+        let cmds: String = sp.iter().enumerate().map(|(i, c)| format!(
+            "<RunSynchronousCommand wcm:action=\"add\"><Order>{}</Order><Path>{}</Path></RunSynchronousCommand>",
+            i + 1, c
+        )).collect();
+        format!(
+"  <settings pass=\"specialize\">
+    <component name=\"Microsoft-Windows-Deployment\" processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" language=\"neutral\" versionScope=\"nonSxS\">
+      <RunSynchronous>{cmds}</RunSynchronous>
+    </component>
+  </settings>
+")
+    };
+
+    // pass oobeSystem — pular telas do OOBE + conta local + regional.
+    let mut oobe = String::new();
+    if o.bypass_ms_account || o.disable_telemetry || o.local_account.is_some() {
+        oobe += "<HideEULAPage>true</HideEULAPage><HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>";
+        if o.bypass_ms_account {
+            oobe += "<HideOnlineAccountScreens>true</HideOnlineAccountScreens>";
+        }
+        if o.disable_telemetry {
+            oobe += "<ProtectYourPC>3</ProtectYourPC>";
+        }
+    }
+    let oobe_block = if oobe.is_empty() { String::new() } else { format!("<OOBE>{oobe}</OOBE>") };
+
+    let accounts = match o.local_account.as_deref().map(str::trim) {
+        Some(name) if !name.is_empty() => format!(
+            "<UserAccounts><LocalAccounts><LocalAccount wcm:action=\"add\"><Name>{n}</Name><DisplayName>{n}</DisplayName><Group>Administrators</Group><Password><Value></Value><PlainText>true</PlainText></Password></LocalAccount></LocalAccounts></UserAccounts>",
+            n = xml_escape(name)
+        ),
+        _ => String::new(),
+    };
+
+    let shell_setup = if oobe_block.is_empty() && accounts.is_empty() {
+        String::new()
+    } else {
+        format!(
+"    <component name=\"Microsoft-Windows-Shell-Setup\" processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" language=\"neutral\" versionScope=\"nonSxS\">
+      {accounts}{oobe_block}
+    </component>
+")
+    };
+
+    let intl = if o.regional {
+        format!(
+"    <component name=\"Microsoft-Windows-International-Core\" processorArchitecture=\"amd64\" publicKeyToken=\"31bf3856ad364e35\" language=\"neutral\" versionScope=\"nonSxS\">
+      <InputLocale>{l}</InputLocale><SystemLocale>{l}</SystemLocale><UILanguage>{l}</UILanguage><UserLocale>{l}</UserLocale>
+    </component>
+", l = xml_escape(locale))
+    } else {
+        String::new()
+    };
+
+    let oobe_section = if shell_setup.is_empty() && intl.is_empty() {
+        String::new()
+    } else {
+        format!("  <settings pass=\"oobeSystem\">\n{shell_setup}{intl}  </settings>\n")
+    };
+
+    Some(format!(
+"<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<unattend xmlns=\"urn:schemas-microsoft-com:unattend\" xmlns:wcm=\"http://schemas.microsoft.com/WMIConfig/2002/State\">
+{pe}{specialize}{oobe_section}</unattend>
+"
+    ))
+}
+
 /// Aspas simples seguras pra shell (dentro do literal do AppleScript).
 fn shell_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -268,7 +434,35 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_disks, shell_single_quote};
+    use super::{generate_autounattend, parse_disks, shell_single_quote, WinOpts};
+
+    #[test]
+    fn autounattend_reflects_options() {
+        let o = WinOpts {
+            bypass_checks: true,
+            bypass_ms_account: true,
+            local_account: Some("Ale".into()),
+            regional: true,
+            disable_telemetry: true,
+            disable_bitlocker: true,
+        };
+        let xml = generate_autounattend(&o, "pt-BR").unwrap();
+        for needle in [
+            "BypassTPMCheck",
+            "BypassNRO",
+            "AllowTelemetry",
+            "PreventDeviceEncryption",
+            "<Name>Ale</Name>",
+            "<UILanguage>pt-BR</UILanguage>",
+        ] {
+            assert!(xml.contains(needle), "faltou no autounattend: {needle}");
+        }
+        // nada marcado → não gera arquivo
+        assert!(generate_autounattend(&WinOpts::default(), "en-US").is_none());
+        // username é escapado
+        let o2 = WinOpts { local_account: Some("a<b&c".into()), ..WinOpts::default() };
+        assert!(generate_autounattend(&o2, "en-US").unwrap().contains("a&lt;b&amp;c"));
+    }
 
     #[test]
     fn parses_one_external_disk() {

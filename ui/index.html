@@ -55,6 +55,10 @@
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     font-weight: 600; font-size: 12px; mix-blend-mode: difference; color: #fff;
   }
+  .uxrow { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .uxrow label { color: var(--ink); }
+  .uxrow input[type=checkbox] { width: 15px; height: 15px; flex: 0 0 auto; accent-color: var(--accent); }
+  .uxrow input[type=text] { width: 150px; height: 24px; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
   .actions button { height: 34px; font-weight: 600; }
   #start { background: var(--accent); color: #fff; border-color: transparent; }
@@ -115,6 +119,36 @@
   </fieldset>
 
   <fieldset>
+    <legend data-i18n="winUX">Windows User Experience</legend>
+    <p class="hint" data-i18n="winNote">Applies only to Windows ISOs.</p>
+    <div class="uxrow">
+      <input type="checkbox" id="winBypass" checked />
+      <label for="winBypass" data-i18n="wBypass">Remove requirement for 4GB+ RAM, Secure Boot and TPM 2.0</label>
+    </div>
+    <div class="uxrow">
+      <input type="checkbox" id="winNoMs" checked />
+      <label for="winNoMs" data-i18n="wNoMs">Remove requirement for an online Microsoft account</label>
+    </div>
+    <div class="uxrow">
+      <input type="checkbox" id="winLocal" />
+      <label for="winLocal" data-i18n="wLocal">Create a local account named:</label>
+      <input type="text" id="winLocalName" value="Administrator" />
+    </div>
+    <div class="uxrow">
+      <input type="checkbox" id="winRegional" />
+      <label for="winRegional" data-i18n="wRegional">Set regional options to this Mac's</label>
+    </div>
+    <div class="uxrow">
+      <input type="checkbox" id="winTelemetry" />
+      <label for="winTelemetry" data-i18n="wTelemetry">Disable data collection (skip privacy questions)</label>
+    </div>
+    <div class="uxrow">
+      <input type="checkbox" id="winBitlocker" />
+      <label for="winBitlocker" data-i18n="wBitlocker">Disable BitLocker automatic device encryption</label>
+    </div>
+  </fieldset>
+
+  <fieldset>
     <legend data-i18n="status">Status</legend>
     <div class="status">
       <div class="bar" id="bar"></div>
@@ -154,7 +188,14 @@
       p_mount: "Mounting image…", p_format: "Formatting USB as FAT32 (MBR)…",
       p_copy: "Copying files…", p_split: "Splitting install.wim (> 4 GB)…",
       p_finish: "Finishing…", p_unmount: "Unmounting device…",
-      p_write: "Writing with dd… (may take minutes)",
+      p_write: "Writing with dd… (may take minutes)", p_unattend: "Writing autounattend.xml…",
+      winUX: "Windows User Experience", winNote: "Applies only to Windows ISOs.",
+      wBypass: "Remove requirement for 4GB+ RAM, Secure Boot and TPM 2.0",
+      wNoMs: "Remove requirement for an online Microsoft account",
+      wLocal: "Create a local account named:",
+      wRegional: "Set regional options to this Mac's",
+      wTelemetry: "Disable data collection (skip privacy questions)",
+      wBitlocker: "Disable BitLocker automatic device encryption",
     },
     pt: {
       driveProps: "Propriedades da Unidade", device: "Dispositivo", refresh: "↻ Atualizar",
@@ -173,7 +214,14 @@
       p_mount: "Montando a imagem…", p_format: "Formatando o USB em FAT32 (MBR)…",
       p_copy: "Copiando arquivos…", p_split: "Dividindo install.wim (> 4 GB)…",
       p_finish: "Finalizando…", p_unmount: "Desmontando o dispositivo…",
-      p_write: "Gravando com dd… (pode levar minutos)",
+      p_write: "Gravando com dd… (pode levar minutos)", p_unattend: "Escrevendo autounattend.xml…",
+      winUX: "Experiência do Windows", winNote: "Só vale pra ISO do Windows.",
+      wBypass: "Remover exigência de 4GB+ RAM, Secure Boot e TPM 2.0",
+      wNoMs: "Remover exigência de conta Microsoft online",
+      wLocal: "Criar conta local com o nome:",
+      wRegional: "Usar as opções regionais deste Mac",
+      wTelemetry: "Desativar coleta de dados (pular perguntas de privacidade)",
+      wBitlocker: "Desativar criptografia automática do BitLocker",
     },
   };
   let lang = localStorage.getItem("rufus_lang") || "en"; // default ENG
@@ -232,8 +280,16 @@
     busy = true; refreshStart();
     setStatus(t("writing"), { indet: true });
     $("hint").textContent = t("working");
+    const winopts = {
+      bypassChecks: $("winBypass").checked,
+      bypassMsAccount: $("winNoMs").checked,
+      localAccount: $("winLocal").checked ? ($("winLocalName").value.trim() || "User") : null,
+      regional: $("winRegional").checked,
+      disableTelemetry: $("winTelemetry").checked,
+      disableBitlocker: $("winBitlocker").checked,
+    };
     try {
-      await invoke("flash", { image: imagePath, disk: device.value });
+      await invoke("flash", { image: imagePath, disk: device.value, winopts });
       setStatus(t("ready"), { pct: 100, color: "var(--accent)" });
       $("hint").textContent = t("hintDone");
     } catch (e) {

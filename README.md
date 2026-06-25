@@ -25,6 +25,7 @@ the original Rufus.
 | Pick an image (`.iso` / `.img` / `.dmg`) | ✅ done |
 | Write Linux/other images raw with `dd` (native admin prompt) | ✅ done |
 | **Windows ISO** → FAT32/MBR + file copy + `install.wim` split (`wimlib`) | ✅ done |
+| **Windows User Experience** tweaks → generated `autounattend.xml` | ✅ done |
 | Live per-stage status (mount → format → copy → split) | ✅ done |
 | English UI, Portuguese optional (toggle, remembered) | ✅ done |
 | Rufus-style layout & options | ✅ done |
@@ -66,6 +67,23 @@ compiles the Rust core and launches the app.
 
 > ⚠️ **Writing erases everything on the selected device.** Double-check the disk in the
 > dropdown before you start.
+
+### Windows User Experience
+
+For Windows ISOs, the checkboxes generate an `autounattend.xml` at the USB root (exactly how
+Rufus does it — Windows Setup reads it automatically). Each toggle maps to a real setting:
+
+| Option | What it writes |
+|---|---|
+| Remove 4GB/Secure Boot/TPM 2.0 | `LabConfig\Bypass{TPM,SecureBoot,RAM,Storage,CPU}Check=1` (windowsPE) |
+| Remove online Microsoft account | `BypassNRO=1` + `HideOnlineAccountScreens` |
+| Create a local account | `<LocalAccount>` in the Administrators group (oobeSystem) |
+| Regional options to this Mac's | locale from macOS `AppleLocale` → Input/System/UI/User locale |
+| Disable data collection | `AllowTelemetry=0` + `ProtectYourPC=3` |
+| Disable BitLocker auto-encryption | `PreventDeviceEncryption=1` |
+
+No `<DiskConfiguration>` is written, so Setup still shows the normal disk-selection screen —
+it won't auto-wipe the target. Currently x64 only; timezone isn't mapped (locale/keyboard only).
 
 ### Languages
 
