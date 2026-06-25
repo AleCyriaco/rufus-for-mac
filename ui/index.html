@@ -150,6 +150,11 @@
       hintPwd: "Enter your admin password in the macOS dialog.",
       hintDone: "Done. Device ejected.",
       pickPrompt: "Select the image (.iso / .img / .dmg)",
+      working: "Working…",
+      p_mount: "Mounting image…", p_format: "Formatting USB as FAT32 (MBR)…",
+      p_copy: "Copying files…", p_split: "Splitting install.wim (> 4 GB)…",
+      p_finish: "Finishing…", p_unmount: "Unmounting device…",
+      p_write: "Writing with dd… (may take minutes)",
     },
     pt: {
       driveProps: "Propriedades da Unidade", device: "Dispositivo", refresh: "↻ Atualizar",
@@ -164,6 +169,11 @@
       hintPwd: "Digite sua senha de admin na janela do macOS.",
       hintDone: "Concluído. Dispositivo ejetado.",
       pickPrompt: "Selecione a imagem (.iso / .img / .dmg)",
+      working: "Trabalhando…",
+      p_mount: "Montando a imagem…", p_format: "Formatando o USB em FAT32 (MBR)…",
+      p_copy: "Copiando arquivos…", p_split: "Dividindo install.wim (> 4 GB)…",
+      p_finish: "Finalizando…", p_unmount: "Desmontando o dispositivo…",
+      p_write: "Gravando com dd… (pode levar minutos)",
     },
   };
   let lang = localStorage.getItem("rufus_lang") || "en"; // default ENG
@@ -221,7 +231,7 @@
   startBtn.onclick = async () => {
     busy = true; refreshStart();
     setStatus(t("writing"), { indet: true });
-    $("hint").textContent = t("hintPwd");
+    $("hint").textContent = t("working");
     try {
       await invoke("flash", { image: imagePath, disk: device.value });
       setStatus(t("ready"), { pct: 100, color: "var(--accent)" });
@@ -234,6 +244,11 @@
   };
 
   $("close").onclick = () => window.close();
+
+  // Estágios do flash vindos do Rust (montar/formatar/copiar/dividir…).
+  window.__TAURI__?.event?.listen("flash-phase", (e) => {
+    if (busy) $("hint").textContent = t(e.payload);
+  });
 
   applyLang(); // aplica idioma salvo + carrega dispositivos
 </script>

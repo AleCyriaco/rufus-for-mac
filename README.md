@@ -1,8 +1,9 @@
 # Rufus for Mac
 
 A macOS take on [Rufus](https://github.com/pbatard/rufus) — the bootable-USB
-creator. **Rust core** (lists disks via `diskutil`, writes via `dd`, asks for admin
-rights via `osascript`) wrapped in a **Tauri** window styled after the original Rufus.
+creator. **Rust core** (lists disks via `diskutil`, raw-writes via `dd`, and builds
+Windows USBs via `diskutil`/`rsync`/`wimlib`) wrapped in a **Tauri** window styled after
+the original Rufus.
 
 ![platform](https://img.shields.io/badge/platform-macOS-black)
 ![language](https://img.shields.io/badge/core-Rust-orange)
@@ -22,18 +23,20 @@ rights via `osascript`) wrapped in a **Tauri** window styled after the original 
 |---|---|
 | List external USB devices (name + size) | ✅ done |
 | Pick an image (`.iso` / `.img` / `.dmg`) | ✅ done |
-| Write to device with `dd` (native admin prompt) | ✅ done |
+| Write Linux/other images raw with `dd` (native admin prompt) | ✅ done |
+| **Windows ISO** → FAT32/MBR + file copy + `install.wim` split (`wimlib`) | ✅ done |
+| Live per-stage status (mount → format → copy → split) | ✅ done |
 | English UI, Portuguese optional (toggle, remembered) | ✅ done |
 | Rufus-style layout & options | ✅ done |
-| Live byte progress | ⏳ indeterminate bar for now — see [Roadmap](#roadmap) |
-| Windows ISO support (FAT32 + `install.wim` split) | ⛔ not yet |
-| Partition scheme / file system / cluster size | 🎚️ visual only (stubs) |
+| Live **byte** progress (not just stages) | ⏳ indeterminate bar — see [Roadmap](#roadmap) |
+| Partition scheme / file system / cluster size selectors | 🎚️ visual only (stubs) |
 
 ## Requirements
 
-- macOS (uses the built-in `diskutil`, `dd`, `osascript`)
+- macOS (uses the built-in `diskutil`, `hdiutil`, `rsync`, `dd`, `osascript`)
 - [Rust](https://rustup.rs)
 - Tauri CLI v2: `cargo install tauri-cli --version "^2.0"`
+- For **Windows ISOs only**: `brew install wimlib` (to split `install.wim` > 4 GB)
 
 ## Run
 
@@ -52,8 +55,14 @@ compiles the Rust core and launches the app.
 2. **Device** — pick it from the dropdown (`↻ Refresh` to rescan). The label shows
    name, size, and `/dev/diskN`.
 3. **Boot selection** — `SELECT` and choose your `.iso` / `.img` / `.dmg`.
-4. **START** — macOS asks for your admin password (that prompt is the real safety gate).
-   The drive is unmounted, written with `dd`, then ejected.
+4. **START** — the app mounts the image and picks the right method automatically:
+   - **Windows ISO** (has `sources/install.wim`): formats the USB as **FAT32/MBR**, copies
+     the files, and splits `install.wim` into `.swm` chunks with `wimlib`. UEFI-bootable,
+     **no password needed**.
+   - **Anything else** (Linux, raw images): written byte-for-byte with `dd` — macOS asks for
+     your admin password (that prompt is the real safety gate).
+
+   The Status line shows the current stage; the bar is indeterminate (see [Roadmap](#roadmap)).
 
 > ⚠️ **Writing erases everything on the selected device.** Double-check the disk in the
 > dropdown before you start.
@@ -70,7 +79,11 @@ ui/index.html          UI — HTML + CSS + JS inline, no bundler, withGlobalTaur
 src-tauri/src/main.rs   Rust core — 3 commands, all shell-outs:
                           list_disks  → diskutil list/info -plist  (parsed with the `plist` crate)
                           pick_image  → osascript "choose file"
-                          flash       → diskutil unmount + dd (via osascript admin) + eject
+                          flash       → hdiutil mounts the image, then branches:
+                                          Windows ISO → diskutil eraseDisk (FAT32/MBR)
+                                                        + rsync + wimlib split + eject
+                                          else        → dd via osascript admin + eject
+                                        (emits stage events to the UI via window.emit)
 src-tauri/tauri.conf.json   480×680 fixed window, frontendDist = ../ui
 ```
 
@@ -93,13 +106,12 @@ The repo ships a plain green placeholder `icon.png` so `cargo tauri dev` runs ou
 
 ## Roadmap
 
-- [ ] **Live byte progress.** `osascript ... with administrator privileges` only returns
-      when `dd` finishes, so the bar is indeterminate today. Upgrade path: a privileged
-      helper (`SMAppService`) launching `dd` and polling `SIGINFO` for real progress.
-- [ ] **Windows ISO support.** FAT32 can't hold an `install.wim` > 4 GB; needs splitting.
-      Don't reinvent it — wire up `wimlib` (`brew install wimlib`).
-- [ ] **Real format options.** Partition scheme / file system / cluster size are visual
-      stubs (`dd` writes the image byte-for-byte, so they don't apply yet).
+- [x] **Windows ISO support.** FAT32/MBR + file copy + `install.wim` split via `wimlib`.
+- [ ] **Live byte progress.** Stages are reported live, but there's no byte-level bar yet.
+      For `dd`, `osascript ... with administrator privileges` only returns when it finishes;
+      upgrade path is a privileged helper (`SMAppService`) launching `dd` and polling `SIGINFO`.
+- [ ] **Wire up the format selectors.** Partition scheme / file system / cluster size are
+      visual stubs; the Windows path is currently hardcoded to FAT32/MBR.
 - [ ] System-language auto-detection (`navigator.language`) on top of the manual toggle.
 
 Shortcuts in the code are tagged with `// cyrix:` comments naming the ceiling and the fix.
