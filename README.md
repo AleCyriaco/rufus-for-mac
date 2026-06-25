@@ -10,12 +10,29 @@ the original Rufus.
 ![ui](https://img.shields.io/badge/ui-Tauri%20v2-24C8DB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+<p align="center"><img src="docs/screenshot.png" alt="Rufus for Mac" width="360"></p>
+
 > **Do you even need this?** For most images, `sudo dd if=image.iso of=/dev/rdiskN bs=4m`
 > already does the job on macOS — that's why Rufus never existed here (Windows lacks a
 > built-in `dd`). This app is that one-liner with a Rufus-style face, device picker, and
 > guardrails.
 
 ---
+
+## Download
+
+Prebuilt for **Apple Silicon** on the
+[**Releases**](https://github.com/AleCyriaco/rufus-for-mac/releases/latest) page:
+
+- **`Rufus_0.1.0_aarch64.dmg`** — open it, drag **Rufus** to Applications.
+- **`Rufus-0.1.0-mac.app.zip`** — unzip and just run `Rufus.app`.
+
+> ⚠️ **Unsigned app** (no paid Apple Developer cert), so Gatekeeper blocks it on first launch.
+> Right-click **Rufus** → **Open** → **Open**, or clear the quarantine flag once:
+> ```sh
+> xattr -dr com.apple.quarantine /Applications/Rufus.app   # or the path where you put it
+> ```
+> For Windows ISOs, also `brew install wimlib`. Intel Mac? Build from source (below).
 
 ## Features
 
